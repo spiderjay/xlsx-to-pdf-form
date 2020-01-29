@@ -1,0 +1,3 @@
+[submodule "fpdm"]
+	path = fpdm
+	url = https://github.com/codeshell/fpdm.git
