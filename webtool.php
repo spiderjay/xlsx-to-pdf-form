@@ -10,6 +10,7 @@
 define("PATH_ROOT",	getcwd());
 define("PATH_FORMS", PATH_ROOT . "/forms/");
 define("DATES_FILE", PATH_FORMS . "dates.txt");
+define("XLSX_FILE", PATH_ROOT . "/data.xlsx");
 
 
 class excelToPdfForm {
@@ -107,9 +108,32 @@ class excelToPdfForm {
 
 	}
 
+	// Load xlsx data into array
+	function loadXlsxData() {
+		$row = 1;
+		if (($handle = fopen(XLSX_FILE, "r")) !== FALSE) {
+		    while (($data = fgetcsv($handle, 1000, ",")) !== FALSE) {
+		        $num = count($data);
+		        echo "<p> $num fields in line $row: <br /></p>\n";
+		        $row++;
+		        for ($c=0; $c < $num; $c++) {
+		            echo $data[$c] . "<br />\n";
+		        }
+		    }
+		    fclose($handle);
+		    print_r($data);
+		    die;
+		}
+		else {
+			echo "Could not open XLSX file for reading.";
+		}
+	}
+
 }
 
 $x = new excelToPdfForm();
+
+$x->loadXlsxData();
 
 if (!$x->checkPdftk()) {
 
@@ -131,9 +155,6 @@ die;
 
 require_once("./map.php");
 require_once("./vals.php");
-
-
-// Verify that the original form(s) have not been altered
 
 
 
