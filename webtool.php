@@ -9,23 +9,26 @@
 
 define("PATH_ROOT",	getcwd());
 define("PATH_FORMS", PATH_ROOT . "/forms/");
+define("DATES_FILE", PATH_FORMS . "dates.txt");
 
 
 class excelToPdfForm {
+
+	// Check if pdftk is installed
+	function checkPdftk() {
+		return !empty(shell_exec("pdftk --version"));
+	}
+
 
 	// Check modified date of all forms
 	function formsForReprocessing() {
 
 		$dates = array();
-		$dates_file = PATH_FORMS . "dates.txt";
 		$forms_to_reprocess = array();
 
-
 		// Load last modified dates (if available)
-		if (is_file($dates_file)) {
-			
-			$handle = fopen($dates_file, "r");
-			
+		if (is_file(DATES_FILE)) {
+			$handle = fopen(DATES_FILE, "r");			
 			if ($handle) {
 			    while (($line = fgets($handle)) !== false) {
 			    	if (trim($line) != "") {
@@ -40,8 +43,6 @@ class excelToPdfForm {
 		$dir = PATH_FORMS;
 		$files = array_diff(scandir($dir), array('.', '..'));
 
-		$str = "";
-
 		foreach ($files as $file) {
 			
 			$file_path = $dir . $file;
@@ -49,23 +50,60 @@ class excelToPdfForm {
 			// Get modified date only for PDF files
 			if (is_file($file_path) && mime_content_type($file_path) == "application/pdf") {
 				$mod_date = filemtime($file_path);
-				$str .= "$file $mod_date\n";
 
-				if (isset($dates[$file]) && $mod_date != $dates[$file]) {
+				if (!isset($dates[$file]))
+				{
+					// file is new / unknown, so add for processing
+					$forms_to_reprocess[] = $file;
+
+				// if modified date differs
+				} elseif (isset($dates[$file]) && $mod_date != $dates[$file]) {
 					echo "Date mismatch for $file... dates file says [{$dates[$file]}] but file is [$mod_date]\n";
 					$forms_to_reprocess[] = $file;
 				}
 			}
 		}
 
-		// Write new modified dates to file
-		//file_put_contents($dates_file, $str);
-
 		if (count($forms_to_reprocess)) {
 			return $forms_to_reprocess;
 		}
-		
+
 		return false;
+	}
+
+
+	// Reprocess new/amended forms with pdftk
+	function reprocessForms($forms) {
+		foreach($forms as $form) {
+
+			$file_path = PATH_FORMS . $form;
+
+			if (is_file($file_path) && mime_content_type($file_path) == "application/pdf") {
+				shell_exec("pdftk $file_path output $file_path.new && mv $file_path.new $file_path");
+			}
+		}
+	}
+
+	// Save new modified dates
+	function updateModifiedDates($forms) {
+		
+		$str = "";
+		foreach($forms as $form) {
+
+			$file_path = PATH_FORMS . $form;
+
+			if (is_file($file_path) && mime_content_type($file_path) == "application/pdf") {
+				$mod_date = filemtime($file_path);
+				$str .= "$form $mod_date\n";
+			}
+		}	
+				
+		if (trim($str)){
+			// Write new modified dates to file
+			file_put_contents(DATES_FILE, $str);
+		}
+
+		echo $str;
 
 	}
 
@@ -73,9 +111,18 @@ class excelToPdfForm {
 
 $x = new excelToPdfForm();
 
+if (!$x->checkPdftk()) {
+
+	echo "pdftk is not installed so we cannot proceed.\n";
+	die;
+}
+
+
 if ($forms_to_reprocess = $x->formsForReprocessing()) {
 	echo "We must reprocess the following forms:\n";
 	print_r($forms_to_reprocess);
+	$x->reprocessForms($forms_to_reprocess);
+	$x->updateModifiedDates($forms_to_reprocess);
 }
 
 die;
@@ -96,22 +143,6 @@ $xfdf_head = '<?xml version="1.0" encoding="UTF-8"?><xfdf xmlns="http://ns.adobe
 $xml_data = '';
 $xfdf_end = '</fields></xfdf>';
 
-/* Generate all fields with field_key form webform and value form submission */
-
-/*
-
-$fields = array(
-	"topmostSubform[0].Page1[0].p1-t1[0]" => "My name goes here"
-);
-
-foreach ($fields as $key => $value) {
-
-    $xml_data .= '
-        <field name="'.$key.'">
-            <value>'.$value.'</value>
-        </field>';
-}
-*/
 
 foreach ($values as $key => $val) {
 
