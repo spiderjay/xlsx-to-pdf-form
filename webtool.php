@@ -10,10 +10,15 @@
 define("PATH_ROOT",	getcwd());
 define("PATH_FORMS", PATH_ROOT . "/forms/");
 define("DATES_FILE", PATH_FORMS . "dates.txt");
+define("FIELDS_FILE", PATH_ROOT . "/fields.txt");
 define("XLSX_FILE", PATH_ROOT . "/data.xlsx");
+define("FDF_FILE", PATH_ROOT . "/data.fdf");
 
+require_once(PATH_ROOT . "/lib/simplexlsx/src/SimpleXLSX.php");
 
 class excelToPdfForm {
+
+	public $mapped_fields = array();
 
 	// Check if pdftk is installed
 	function checkPdftk() {
@@ -73,6 +78,7 @@ class excelToPdfForm {
 	}
 
 
+
 	// Reprocess new/amended forms with pdftk
 	function reprocessForms($forms) {
 		foreach($forms as $form) {
@@ -108,40 +114,132 @@ class excelToPdfForm {
 
 	}
 
-	// Load xlsx data into array
-	function loadXlsxData() {
-		$row = 1;
-		if (($handle = fopen(XLSX_FILE, "r")) !== FALSE) {
-		    while (($data = fgetcsv($handle, 1000, ",")) !== FALSE) {
-		        $num = count($data);
-		        echo "<p> $num fields in line $row: <br /></p>\n";
-		        $row++;
-		        for ($c=0; $c < $num; $c++) {
-		            echo $data[$c] . "<br />\n";
-		        }
+
+	// map fields from PDF form
+	function mapFields() {
+	
+		$handle = fopen(FIELDS_FILE, "r");
+		
+		$i = 0;
+
+		if ($handle) {
+
+		    while (($line = fgets($handle)) !== false) {
+			
+		    	if (trim($line) != "---") {
+					
+					$exp = explode(": ", $line);
+
+					$field['key'] = str_replace("Field", "", $exp[0]);
+					$field['value'] = trim($exp[1]);
+
+					// we have two options for this value
+					if ($field['key'] == "StateOption") {
+
+						// if we've already created an array for this value, use it
+						if(is_array($this->mapped_fields[$i][$field['key']])) {
+							$this->mapped_fields[$i][$field['key']][] = $field['value'];
+						}
+						// otherwise create the array now
+						else {
+							$this->mapped_fields[$i][$field['key']] = array($field['value']);
+						}
+					}
+					else {
+						// store the key value pair
+						$this->mapped_fields[$i][$field['key']] = $field['value'];	
+					}
+					
+
+				} else {
+
+					if (count($this->mapped_fields) > 0) {
+						$i++;
+					}
+				}  
 		    }
 		    fclose($handle);
-		    print_r($data);
-		    die;
+		} else {
+		    // error opening the file.
+		    echo "There was an error opening/reading the fields.txt file.";
+		} 
+	}
+
+
+	// Load xlsx data into array
+	function loadXlsxData() {
+		if ( $xlsx = SimpleXLSX::parse(XLSX_FILE) ) {
+			$data = $xlsx->rows();
+			$headers = array_shift($data); 	//removing first line of headers
+			return $data;
 		}
-		else {
-			echo "Could not open XLSX file for reading.";
+		echo "Could not parse xlsx file:\n" . SimpleXLSX::parseError();
+		return false;
+	}
+
+	// Build XFDF data from Excel Data Array
+	function buildXfdfData($data) {
+
+		$xfdf_head = '<?xml version="1.0" encoding="UTF-8"?><xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve"><fields>';
+		$xml_data = '';
+		$xfdf_end = '</fields></xfdf>';
+
+
+		foreach ($data as $field) {
+
+ 			/*
+ 			[0] => Type
+            [1] => Field Name
+            [2] => Data
+            */
+
+            $field_name = $field[1];
+            $field_data = $field[2];
+
+			//echo "Mapping field name [{$field[1]}] to value [{$field[2]}]\n";
+
+			$key = array_search($field_name, array_column($this->mapped_fields, 'Name'));
+
+			// if we have an array of options for the value this is a checkbox
+			if (isset($this->mapped_fields[$key]["StateOption"])) {
+
+				if ($field_data != "Off") {
+
+					//echo "-- Field should NOT be off\n";
+
+					$search = array_search("Off", $this->mapped_fields[$key]["StateOption"]);
+					$field_data = $search == 0 ? $this->mapped_fields[$key]["StateOption"][1] : $this->mapped_fields[$key]["StateOption"][0];
+
+					//echo "-- Value set to [$field_data]\n";
+				}
+			}
+
+			$field_data = substr($field_data, 0, 10);
+
+			$xml_data .= '
+		        <field name="'.$field_name.'">
+		            <value>'.$field_data.'</value>
+		        </field>';
 		}
+
+		$FDF_content = $xfdf_head.$xml_data.$xfdf_end;
+		return $FDF_content;
 	}
 
 }
 
+
+// init the class
 $x = new excelToPdfForm();
 
-$x->loadXlsxData();
-
+// check we have the right software installed
 if (!$x->checkPdftk()) {
 
 	echo "pdftk is not installed so we cannot proceed.\n";
 	die;
 }
 
-
+// check for updates to the PDF forms
 if ($forms_to_reprocess = $x->formsForReprocessing()) {
 	echo "We must reprocess the following forms:\n";
 	print_r($forms_to_reprocess);
@@ -149,60 +247,23 @@ if ($forms_to_reprocess = $x->formsForReprocessing()) {
 	$x->updateModifiedDates($forms_to_reprocess);
 }
 
-die;
+// map the fields
+$x->mapFields();
 
+// fetch the data
+$excel_data = $x->loadXlsxData();
 
+$xfdf = $x->buildXfdfData($excel_data);
 
-require_once("./map.php");
-require_once("./vals.php");
+echo "Writing XFDF data...\n";
 
-
-
-
-
-$xfdf_head = '<?xml version="1.0" encoding="UTF-8"?><xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve"><fields>';
-$xml_data = '';
-$xfdf_end = '</fields></xfdf>';
-
-
-foreach ($values as $key => $val) {
-
-	echo "Mapping field name [". $mapped_fields[$key]['Name'] ." to value [$val]\n";
-
-	// if we have an array of options for the value this is a checkbox
-	if (isset($mapped_fields[$key]["StateOption"])) {
-		//print_r($mapped_fields[$key]);
-
-		//echo "Field has state options\n";
-
-		if ($val != "Off") {
-
-			//echo "-- Field should NOT be off\n";
-
-			$search = array_search("Off", $mapped_fields[$key]["StateOption"]);
-			$val = $search == 0 ? $mapped_fields[$key]["StateOption"][1] : $mapped_fields[$key]["StateOption"][0];
-
-			//echo "-- Value set to [$val]\n";
-		}
-	}
-
-	$state = "";
-	if (isset($mapped_fields[$key]["StateOption"])){
-		$state = '<stateoption>'.$val.'</stateoption>';
-	}
-
-    $xml_data .= '
-        <field name="'.$mapped_fields[$key]['Name'].'">
-            <value>'.$val.'</value>
-        </field>';
-}
-
-
-
-$FDF_content = $xfdf_head.$xml_data.$xfdf_end;
-
-$FDF_file = fopen('new_fdf.fdf', 'w');
-fwrite($FDF_file, $FDF_content);
+$FDF_file = fopen(FDF_FILE, 'w');
+fwrite($FDF_file, $xfdf);
 fclose($FDF_file);
+
+echo "Merge PDF to new doc...\n";
+
+shell_exec("pdftk " . PATH_FORMS . "f433a.pdf fill_form " . PATH_ROOT . "/data.fdf output " . PATH_ROOT . "/pdfs/f433a_filled_" . date("Y-m-d-His") . ".pdf");
+
 
 ?>

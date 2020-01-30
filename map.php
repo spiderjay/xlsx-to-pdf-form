@@ -61,16 +61,5 @@ if ($handle) {
     echo "There was an error opening/reading the file.";
 } 
 
-/*
 
-// write to csv
-
-$fp = fopen('data.csv', 'w');
-
-foreach ($mapped_fields as $field) {
-    fputcsv($fp, $field);
-}
-
-fclose($fp);
-*/
 ?>

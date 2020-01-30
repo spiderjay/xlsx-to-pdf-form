@@ -1,3 +1,6 @@
 [submodule "fpdm"]
 	path = fpdm
 	url = https://github.com/codeshell/fpdm.git
+[submodule "lib/simplexlsx"]
+	path = lib/simplexlsx
+	url = https://github.com/shuchkin/simplexlsx.git
