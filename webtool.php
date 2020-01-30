@@ -1,5 +1,12 @@
 <?php
 
+/*
+
+	PHP application to auto populate PDF form fields with
+	data from Excel file
+
+*/
+
 require_once("./map.php");
 require_once("./vals.php");
 
